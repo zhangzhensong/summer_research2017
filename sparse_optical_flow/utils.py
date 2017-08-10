@@ -5,7 +5,7 @@ import numpy as np
 #params for ShiTomasi corner detection
 feature_params = dict( maxCorners = 200,
 						   qualityLevel = 0.005,
-						   minDistance = 5,
+					 	   minDistance = 5,
 						   blockSize = 5 )
 						   
 # feature_params = dict( maxCorners = 500,
@@ -14,9 +14,9 @@ feature_params = dict( maxCorners = 200,
 						   # blockSize = 12 )
 
 # Parameters for lucas kanade optical flow
-lk_params = dict( winSize  = (5,5),
+lk_params = dict( winSize  = (10,10),
 					  maxLevel = 2,
-					  criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+					  criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 8, 0.03))
 
 MIN_MATCH_COUNT = 4
 
@@ -54,7 +54,141 @@ def buildmap_2(Ws, Hs, Wd, Hd, fov=180.0):
     ymap = Hd / 2.0 - y_fish
     xmap = Wd / 2.0 + x_fish
     return xmap, ymap
+	
+def imgLabeling2(img1, img2, img3, img4, maskSize, xoffsetL, xoffsetR):
+    if len(img1.shape) == 3:
+        errL = np.sum(np.square(img1.astype(np.float64) -
+                                img2.astype(np.float64)), axis=2)
+        errR = np.sum(np.square(img3.astype(np.float64) -
+                                img4.astype(np.float64)), axis=2)
+    else:
+        errL = np.square(img1.astype(np.float64) - img2.astype(np.float64))
+        errR = np.square(img3.astype(np.float64) - img4.astype(np.float64))
+    EL = np.zeros(errL.shape, np.float64)
+    ER = np.zeros(errR.shape, np.float64)
+    EL[0] = errL[0]
+    ER[0] = errR[0]
+    for i in range(1, maskSize[1]):
+        EL[i, 0] = errL[i, 0] + min(EL[i - 1, 0], EL[i - 1, 1])
+        ER[i, 0] = errR[i, 0] + min(ER[i - 1, 0], ER[i - 1, 1])
+        for j in range(1, EL.shape[1] - 1):
+            EL[i, j] = errL[i, j] + \
+                min(EL[i - 1, j - 1], EL[i - 1, j], EL[i - 1, j + 1])
+        for j in range(1, ER.shape[1] - 1):
+            ER[i, j] = errR[i, j] + \
+                min(ER[i - 1, j - 1], ER[i - 1, j], ER[i - 1, j + 1])
+        EL[i, -1] = errL[i, -1] + min(EL[i - 1, -1], EL[i - 1, -2])
+        ER[i, -1] = errR[i, -1] + min(ER[i - 1, -1], ER[i - 1, -2])
 
+    minlocL = np.argmin(EL, axis=1) + xoffsetL
+    minlocR = np.argmin(ER, axis=1) + xoffsetR
+    mask = np.ones((maskSize[1], maskSize[0], 3), np.float64)
+    for i in range(maskSize[1]):
+        mask[i, minlocL[i]:minlocR[i]] = 0
+        mask[i, minlocL[i]] = 0.5
+        mask[i, minlocR[i]] = 0.5
+    #cv2.imshow('mask', mask.astype(np.float32))
+    return mask
+
+	
+def imgLabeling3(img1, img2, img3, img4, maskSize, xoffsetL, xoffsetR,
+                 minloc_old=None):
+    if len(img1.shape) == 3:
+        errL = np.sum(np.square(img1.astype(np.float64) -
+                                img2.astype(np.float64)), axis=2)
+        errR = np.sum(np.square(img3.astype(np.float64) -
+                                img4.astype(np.float64)), axis=2)
+    else:
+        errL = np.square(img1.astype(np.float64) - img2.astype(np.float64))
+        errR = np.square(img3.astype(np.float64) - img4.astype(np.float64))
+    EL = np.zeros(errL.shape, np.float64)
+    ER = np.zeros(errR.shape, np.float64)
+    EL[0] = errL[0]
+    ER[0] = errR[0]
+    for i in range(1, maskSize[1]):
+        EL[i, 0] = errL[i, 0] + min(EL[i - 1, 0], EL[i - 1, 1])
+        ER[i, 0] = errR[i, 0] + min(ER[i - 1, 0], ER[i - 1, 1])
+        for j in range(1, EL.shape[1] - 1):
+            EL[i, j] = errL[i, j] + \
+                min(EL[i - 1, j - 1], EL[i - 1, j], EL[i - 1, j + 1])
+        for j in range(1, ER.shape[1] - 1):
+            ER[i, j] = errR[i, j] + \
+                min(ER[i - 1, j - 1], ER[i - 1, j], ER[i - 1, j + 1])
+        EL[i, -1] = errL[i, -1] + min(EL[i - 1, -1], EL[i - 1, -2])
+        ER[i, -1] = errR[i, -1] + min(ER[i - 1, -1], ER[i - 1, -2])
+    minlocL = np.argmin(EL, axis=1) + xoffsetL
+    minlocR = np.argmin(ER, axis=1) + xoffsetR
+    if minloc_old is None:
+        minloc_old = [minlocL, minlocR, minlocL, minlocR]
+    minlocL_fin = np.int32(0.4 * minlocL + 0.3 *
+                           minloc_old[0] + 0.3 * minloc_old[2])
+    minlocR_fin = np.int32(0.4 * minlocR + 0.3 *
+                           minloc_old[1] + 0.3 * minloc_old[3])
+    mask = np.ones((maskSize[1], maskSize[0], 3), np.float64)
+    for i in range(maskSize[1]):
+        mask[i, minlocL_fin[i]:minlocR_fin[i]] = 0
+        mask[i, minlocL_fin[i]] = 0.5
+        mask[i, minlocR_fin[i]] = 0.5
+    #cv2.imshow('mask', mask.astype(np.float32))
+    return mask, [minlocL, minlocR, minlocL_fin, minlocR_fin]
+
+
+
+
+def GaussianPyramid(img, leveln):
+    GP = [img]
+    for i in range(leveln - 1):
+        GP.append(cv2.pyrDown(GP[i]))
+    return GP
+
+
+def LaplacianPyramid(img, leveln):
+    LP = []
+    for i in range(leveln - 1):
+        next_img = cv2.pyrDown(img)
+        LP.append(img - cv2.pyrUp(next_img, img.shape[1::-1]))
+        img = next_img
+    LP.append(img)
+    return LP
+
+
+def blend_pyramid(LPA, LPB, MP):
+    blended = []
+    for i, M in enumerate(MP):
+        blended.append(LPA[i] * M + LPB[i] * (1.0 - M))
+    return blended
+
+
+def reconstruct(LS):
+    img = LS[-1]
+    for lev_img in LS[-2::-1]:
+        img = cv2.pyrUp(img, lev_img.shape[1::-1])
+        img += lev_img
+    return img
+
+
+def multi_band_blending(img1, img2, mask, leveln=6):
+    max_leveln = int(np.floor(np.log2(min(img1.shape[0], img1.shape[1],
+                                          img2.shape[0], img2.shape[1]))))
+    if leveln is None:
+        leveln = max_leveln
+    if leveln < 1 or leveln > max_leveln:
+        #print "warning: inappropriate number of leveln"
+        leveln = max_leveln
+
+    # Get Gaussian pyramid and Laplacian pyramid
+    MP = GaussianPyramid(mask, leveln)
+    LPA = LaplacianPyramid(img1.astype(np.float64), leveln)
+    LPB = LaplacianPyramid(img2.astype(np.float64), leveln)
+    # Blend two Laplacian pyramidspass
+    blended = blend_pyramid(LPA, LPB, MP)
+
+    # Reconstruction process
+    result = reconstruct(blended)
+    result[result > 255] = 255
+    result[result < 0] = 0
+
+    return result
 
 ###################### from xy ###############################
 
